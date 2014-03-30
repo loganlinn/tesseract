@@ -4,6 +4,7 @@
   (:require [cemerick.cljs.test :as t]
             [tesseract.core :as core :refer-macros [defcomponent]]
             [tesseract.component :as component]
+            [tesseract.cursor]
             [tesseract.dom :as dom]))
 
 (defcomponent Comment
@@ -71,3 +72,36 @@
       (testing "After processing set-state!"
         (is (= "<div class=\"comment-box\"><h1>Comments</h1><div class=\"comment-list\"><div class=\"comment\"><h2 class=\"comment-author\">Logan Linn</h2>This is one comment</div><div class=\"comment\"><h2 class=\"comment-author\">Scott Rabin</h2>This is *another* comment</div></div></div>"
                (.-innerHTML (.getElementById js/document container-id))))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(deftest test-element-cursor
+  (let [el (dom/ul {:version 1} (doall (repeat 5 (dom/li {}))))
+        el' (update-in el [:attrs :version] inc)
+        cursor (tesseract.cursor/->cursor :root-id)]
+    (testing "tesseract.IComponent/-build! associates cursor"
+      (let [built-el (component/-build! el' el cursor)
+            num-children (-> built-el
+                             (component/get-child 0)
+                             (component/get-children)
+                             (count))]
+        (is (= cursor (tesseract.cursor/get-cursor built-el)))
+        (testing "child cursors"
+          (dotimes [n num-children]
+            (is (= (conj cursor n)
+                   (-> built-el
+                       (component/get-child n)
+                       (tesseract.cursor/get-cursor))))))))
+    (testing "tesseract.IComponent/-unmount! dissociates cursor"
+      (let [built-el (component/-build! el' el cursor)
+            num-children (-> built-el
+                             (component/get-child 0)
+                             (component/get-children)
+                             (count))]
+        (component/unmount! built-el)
+        (is (nil? (tesseract.cursor/get-cursor built-el)))
+        (testing "child cursors"
+          (dotimes [n num-children]
+            (is (nil? (-> built-el
+                          (component/get-child n)
+                          (tesseract.cursor/get-cursor))))))))))

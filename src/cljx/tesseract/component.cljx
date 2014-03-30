@@ -6,6 +6,7 @@
 (defprotocol IComponent
   (-render [this])
   (-mount! [component root-node cursor])
+  (-unmount! [component])
   (-build! [this prev-component cursor]))
 
 (defprotocol IBuiltComponent
@@ -62,6 +63,9 @@
 
 (defn mount! [component root-node cursor]
   (-mount! component root-node cursor))
+
+(defn unmount! [component]
+  (-unmount! component))
 
 (defn build! [component prev-component cursor]
   (-build! component prev-component cursor))
@@ -153,6 +157,13 @@
     ; TODO (when (satisfies? IDidMount component) (enqueue-mount-ready! component root-node))
     mounted))
 
+(defn unmount-component!
+  [component]
+  (will-unmount! component)
+  (doseq [child (get-children component)]
+    (unmount! child))
+  (tesseract.cursor/clear-cursor! component))
+
 #+clj
 (defn emit-defcomponent
   "Emits forms to define a record and convenience constructor for components"
@@ -164,6 +175,8 @@
                 `(~'-render ~@(:render spec-map))
                 `(~'-mount! [this# root-node# cursor#]
                             (mount-component! this# root-node# cursor#))
+                `(~'-unmount! [this#]
+                              (unmount-component! this#))
                 `(~'-build! [this# prev# cursor#]
                             (build-component! this# prev# cursor#))]
                [`IBuiltComponent

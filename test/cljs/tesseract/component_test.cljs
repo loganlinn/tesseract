@@ -4,6 +4,7 @@
   (:require [cemerick.cljs.test :as t]
             [tesseract.core :as core :refer-macros [defcomponent]]
             [tesseract.component :as component]
+            [tesseract.cursor]
             [tesseract.dom :as dom]))
 
 (use-fixtures :each
@@ -116,3 +117,50 @@
     (is (= 2 (count (:children out))))
     (is (= "<div class=\"comment-list\"><div class=\"comment\"><h2 class=\"comment-author\">Logan Linn</h2>This is one comment</div><div class=\"comment\"><h2 class=\"comment-author\">Scott Rabin</h2>This is *another* comment</div></div>"
            (str out)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(deftest test-component-cursor
+  (let [comments (CommentList {:version 1})
+        comments' (update-in comments [:attrs :version] inc)
+        cursor (tesseract.cursor/->cursor :root-id)]
+    (testing "tesseract.IComponent/-build! associates cursor"
+      (let [built-comments (component/-build! comments' comments cursor)
+            num-gchildren (-> built-comments
+                              (component/get-child 0)
+                              (component/get-children)
+                              (count))]
+        (is (= cursor (tesseract.cursor/get-cursor built-comments)))
+        (testing "child cursors"
+          (is (= (conj cursor 0)
+                 (-> built-comments
+                     (component/get-child 0)
+                     (tesseract.cursor/get-cursor))))
+          (dotimes [n num-gchildren]
+            (is (= (conj cursor 0 n)
+                   (-> built-comments
+                       (component/get-child-in [0 n])
+                       (tesseract.cursor/get-cursor))))))))
+    (testing "tesseract.IComponent/-unmount! dissociates cursor"
+      (let [will-unmount-calls (atom 0)
+            built-comments (-> (component/-build! comments' comments cursor)
+                               (specify! component/IWillUnmount
+                                         (-will-unmount! [this]
+                                                         (swap! will-unmount-calls inc))))
+            num-gchildren (-> built-comments
+                              (component/get-child 0)
+                              (component/get-children)
+                              (count))]
+        (component/unmount! built-comments)
+        (testing "tesseract.IWillMount/-will-unmount! invoked"
+          (is (= 1 @will-unmount-calls)))
+        (testing "dissociates cursor"
+          (is (nil? (tesseract.cursor/get-cursor built-comments))))
+        (testing "dissociates child cursors"
+          (is (nil? (-> built-comments
+                        (component/get-child 0)
+                        (tesseract.cursor/get-cursor))))
+          (dotimes [n num-gchildren]
+            (is (nil? (-> built-comments
+                          (component/get-child-in [0 n])
+                          (tesseract.cursor/get-cursor))))))))))

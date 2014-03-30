@@ -42,6 +42,10 @@
           (tesseract.cursor/assoc-cursor cursor)
           (tesseract.attrs/build-attrs! nil tesseract-env)
           (c/assoc-children children))))
+  (-unmount! [this]
+    (doseq [child (:children this)]
+      (c/-unmount! child))
+    (tesseract.cursor/clear-cursor! this))
   (-build! [this prev-component cursor]
     (let [prev-children (:children prev-component)
           children (build-children! (:children this) prev-children cursor)]
@@ -83,11 +87,13 @@
   #+clj String #+cljs string
   (-render [this] this)
   (-mount! [this _ _] this)
+  (-unmount! [this])
   (-build! [this _ cursor] this)
 
   #+clj java.lang.Number #+cljs number
   (-render [this] this)
   (-mount! [this _ _] this)
+  (-unmount! [_])
   (-build! [this _ cursor] this))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -138,7 +144,7 @@
      (unmount-component! component container)))
   ([component container]
    (when-let [id (mount/root-id container)]
-     (c/will-unmount! component)
+     (c/unmount! component)
      (env/unregister-root-id! tesseract-env id)
      (dom.core/empty! container)
      true)))
