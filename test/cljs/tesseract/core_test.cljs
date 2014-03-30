@@ -8,10 +8,10 @@
             [tesseract.dom :as dom]))
 
 (defcomponent Comment
-  (render [{:keys [attrs children]}]
-    (dom/div {:class :comment}
-             (dom/h2 {:class :comment-author} (:author attrs))
-             children)))
+  (render [{:keys [attrs]}]
+          (dom/div {:class :comment}
+                   (dom/h2 {:class :comment-author} (:author attrs))
+                   (:children attrs))))
 
 (defcomponent CommentList
   (render [{{:keys [comments]} :attrs}]
@@ -76,32 +76,26 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (deftest test-element-cursor
-  (let [el (dom/ul {:version 1} (doall (repeat 5 (dom/li {}))))
+  (let [el (dom/ul {:version 1} (doall (for [i (range 5)] (dom/li {} i))))
         el' (update-in el [:attrs :version] inc)
         cursor (tesseract.cursor/->cursor :root-id)]
     (testing "tesseract.IComponent/-build! associates cursor"
       (let [built-el (component/-build! el' el cursor)
-            num-children (-> built-el
-                             (component/get-child 0)
-                             (component/get-children)
-                             (count))]
+            num-children (-> built-el :children count)]
         (is (= cursor (tesseract.cursor/get-cursor built-el)))
         (testing "child cursors"
           (dotimes [n num-children]
             (is (= (conj cursor n)
                    (-> built-el
-                       (component/get-child n)
+                       (get-in [:children n])
                        (tesseract.cursor/get-cursor))))))))
     (testing "tesseract.IComponent/-unmount! dissociates cursor"
       (let [built-el (component/-build! el' el cursor)
-            num-children (-> built-el
-                             (component/get-child 0)
-                             (component/get-children)
-                             (count))]
+            num-children (-> built-el :children count)]
         (component/unmount! built-el)
         (is (nil? (tesseract.cursor/get-cursor built-el)))
         (testing "child cursors"
           (dotimes [n num-children]
             (is (nil? (-> built-el
-                          (component/get-child n)
+                          (get-in [:children n])
                           (tesseract.cursor/get-cursor))))))))))

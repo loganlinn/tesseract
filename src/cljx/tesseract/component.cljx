@@ -9,14 +9,6 @@
   (-unmount! [component])
   (-build! [this prev-component cursor]))
 
-(defprotocol IBuiltComponent
-  (-get-children [this])
-  (-get-child [this k])
-  (-assoc-children [this children])
-  (-assoc-child [this k child])
-  (-get-child-in [this path])
-  (-assoc-child-in [this path child]))
-
 (defprotocol IShouldRender
   "Returns boolean. Invoked before rendering when new attrs or state is
   recieved. This method is not called for the initial render. Use this
@@ -57,6 +49,8 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defn component? [x] (satisfies? IComponent x))
+
 (defn render [component] (-render component))
 
 (defn render-str [component] (str (-render component)))
@@ -69,24 +63,6 @@
 
 (defn build! [component prev-component cursor]
   (-build! component prev-component cursor))
-
-(defn get-children [component]
-  (-get-children component))
-
-(defn get-child [component k]
-  (-get-child component k))
-
-(defn assoc-child [component k child]
-   (-assoc-child component k child))
-
-(defn get-child-in [component path]
-  (-get-child-in component path))
-
-(defn assoc-children [component children]
-  (-assoc-children component children))
-
-(defn assoc-child-in [component path child]
-  (-assoc-child-in component path child))
 
 (defn will-mount! [component]
   (if (satisfies? IWillMount component)
@@ -136,7 +112,7 @@
   (let [child (build-child component prev-component cursor)
         built (-> component
                   (tesseract.cursor/assoc-cursor cursor)
-                  (assoc-children [child]))]
+                  (assoc :children [child]))]
     ;; TODO (did-build! built component root-node)
     built))
 
@@ -153,14 +129,14 @@
                       (tesseract.cursor/assoc-cursor cursor)
                       (will-mount!))
         child (mount-child! component cursor)
-        mounted (assoc-children component [child])]
+        mounted (assoc component :children [child])]
     ; TODO (when (satisfies? IDidMount component) (enqueue-mount-ready! component root-node))
     mounted))
 
 (defn unmount-component!
   [component]
   (will-unmount! component)
-  (doseq [child (get-children component)]
+  (doseq [child (:children component)]
     (unmount! child))
   (tesseract.cursor/clear-cursor! component))
 
@@ -179,37 +155,6 @@
                               (unmount-component! this#))
                 `(~'-build! [this# prev# cursor#]
                             (build-component! this# prev# cursor#))]
-               [`IBuiltComponent
-                `(~'-get-children [this#] (::children this#))
-                `(~'-get-child [this# k#] (get (::children this#) k#))
-                `(~'-assoc-children [this# children#]
-                                    (assoc this# ::children (if (associative? children#)
-                                                              children#
-                                                              (vec children#))))
-                `(~'-assoc-child [this# k# child#]
-                                 (let [children# (::children this#)
-                                       children# (if (associative? children#) children# (vec children#))]
-                                   (assoc this# ::children (assoc children# k# child#))))
-                `(~'-get-child-in [this# path#]
-                                  (if (seq path#)
-                                    (when-let [child# (-get-child this# (first path#))]
-                                      (-get-child-in child# (rest path#)))
-                                    this#))
-                `(~'-assoc-child-in [this# [k# & ks#] child#]
-                                    (let [children# (::children this#)
-                                          children# (if (associative? children#) children# (vec children#))]
-                                      (cond
-                                        ks# (if-let [next-child# (get children# k#)]
-                                              (->> (-assoc-child-in next-child# ks# child#)
-                                                   (assoc children# k#)
-                                                   (assoc this# ::children))
-                                              (throw
-                                                #+clj (RuntimeException. "Failed to associate child at uninitialized path")
-                                                #+cljs (js/Error. "Failed to associate child at uninitialized path")))
-
-                                        k# (-assoc-child this# k# child#)
-
-                                        :else child#)))]
                [`IShouldRender
                 (if-let [spec (:should-render? spec-map)]
                   `(~'-should-render? ~@spec)
@@ -232,7 +177,7 @@
                   `(~'-will-unmount! ~@spec)])
                ['Object
                 `(~'toString [this#]
-                             (if-let [[built-child#] (-get-children this#)]
+                             (if-let [built-child# (-> this# :children first)]
                                (str built-child#)
                                (-> (-render this#)
                                    (tesseract.attrs/build-attrs)
@@ -242,9 +187,10 @@
          ~@(apply concat impls))
        (defn ~component-name
          [attrs# & children#]
+         (assert (not (contains? attrs# :children)) ":children is a reserved attr")
          (new ~rec-name
-              attrs#
-              (vec children#)
+              (assoc attrs# :children (vec children#))
+              nil
               ~(if-let [default-state (:default-state spec-map)]
                  ~@default-state
                  '{}))))))

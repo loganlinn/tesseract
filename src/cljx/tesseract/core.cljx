@@ -18,20 +18,32 @@
 (def ^:private tesseract-env (env/create-env))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
 ;; TODO This should probably be moved to own namespace or tesseract.component
 
 (defn- mount-children! [nested-children parent-cursor]
-  (map-indexed #(c/mount! %2 nil (conj parent-cursor %1))
-               (flatten nested-children)))
+  (->> nested-children
+       (flatten)
+       (map-indexed (fn [idx child]
+                      (if (c/component? child)
+                        (c/mount! child nil (conj parent-cursor idx))
+                        (do
+                          (println "WARNING: non-component child:" child)
+                          child))))
+       (vec)))
 
 (defn- build-children! [nested-children prev-children parent-cursor]
-  (map-indexed (fn [idx child]
-                 (let [child-cursor (conj parent-cursor idx)]
-                   (if-let [prev-child (get prev-children idx)]
-                     (c/build! child prev-child child-cursor)
-                     (c/mount! child nil child-cursor))))
-               (flatten nested-children)))
+  (->> nested-children
+       (flatten)
+       (map-indexed (fn [idx child]
+                      (if (c/component? child)
+                        (let [child-cursor (conj parent-cursor idx)]
+                          (if-let [prev-child (get prev-children idx)]
+                            (c/build! child prev-child child-cursor)
+                            (c/mount! child nil child-cursor)))
+                        (do
+                          (println "WARNING: non-component child:" child)
+                          child))))
+       (vec)))
 
 (extend-type #+clj tesseract.dom.Element #+cljs dom/Element
   c/IComponent
@@ -41,7 +53,7 @@
       (-> this
           (tesseract.cursor/assoc-cursor cursor)
           (tesseract.attrs/build-attrs! nil tesseract-env)
-          (c/assoc-children children))))
+          (assoc :children children))))
   (-unmount! [this]
     (doseq [child (:children this)]
       (c/-unmount! child))
@@ -52,36 +64,7 @@
       (-> this
           (tesseract.cursor/assoc-cursor cursor)
           (tesseract.attrs/build-attrs! prev-component tesseract-env)
-          (c/assoc-children children))))
-
-  c/IBuiltComponent
-  (-get-children [this] (:children this))
-  (-get-child [this k]
-    (get-in this [:children k]))
-  (-assoc-children [this children]
-    (assoc this :children (if (associative? children) children (vec children))))
-  (-assoc-child [{children :children :as this} k child]
-    (let [children (if (associative? children) children (vec children))]
-      (assoc this :children (assoc children k child))))
-  (-get-child-in [this path]
-    (if (seq path)
-      (when-let [child (c/-get-child this (first path))]
-        (c/-get-child-in child (rest path)))
-      this))
-  (-assoc-child-in [{children :children :as this} [k & ks] child]
-    (let [children (if (associative? children) children (vec children))]
-      (cond
-        ks (if-let [next-child (get children k)]
-             (->> (c/-assoc-child-in next-child ks child)
-                  (assoc children k)
-                  (assoc :children this))
-             (throw
-               #+clj  (RuntimeException. "Failed to associate child at uninitialized path")
-               #+cljs (js/Error. "Failed to associate child at uninitialized path")))
-
-        k (c/-assoc-child this k child)
-
-        :else child))))
+          (assoc :children children)))))
 
 (extend-protocol c/IComponent
   #+clj String #+cljs string
@@ -100,21 +83,22 @@
 
 #+cljs
 (defn tick-state! [component next-state-fn cursor]
-  (let [[root-id & path] cursor
-        container (mount/container-by-root-id tesseract-env root-id)
-        root-component (mount/component-by-root-id tesseract-env root-id)
-        canon-component (c/get-child-in root-component path)
-        not-found? (nil? canon-component)
-        component (or canon-component component)
-        next-component (next-state-fn component)]
-    (if (c/should-render? component next-component)
-      ;; Rebuild entire thing for now... TODO rebuild next-component, find its respective DOM
-      (let [root-cursor (tesseract.cursor/->cursor root-id)
-            root-component (-> root-component
-                               (c/assoc-child-in path next-component)
-                               (c/build! root-component root-cursor))]
-        (set! (.-innerHTML container) (str root-component))
-        (env/register-component! tesseract-env root-component root-id)))))
+  (when cursor
+    (let [root-id (tesseract.cursor/root-id cursor)
+          container (mount/container-by-root-id tesseract-env root-id)
+          root-component (mount/component-by-root-id tesseract-env root-id)
+          canon-component (tesseract.cursor/get-child root-component cursor)
+          not-found? (nil? canon-component)
+          component (or canon-component component)
+          next-component (next-state-fn component)]
+      (if (c/should-render? component next-component)
+        ;; Rebuild entire thing for now... TODO rebuild next-component, find its respective DOM
+        (let [root-cursor (tesseract.cursor/->cursor root-id)
+              root-component (-> root-component
+                                 (tesseract.cursor/assoc-child cursor next-component)
+                                 (c/build! root-component root-cursor))]
+          (set! (.-innerHTML container) (str root-component))
+          (env/register-component! tesseract-env root-component root-id))))))
 
 #+cljs
 (defn flush-next-state! []
