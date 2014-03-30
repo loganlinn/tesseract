@@ -1,0 +1,4 @@
+--ignore-dir=target
+--ignore-dir=resources
+--ignore-dir=examples/basic/out
+--ignore-dir=examples/todomvc/out
